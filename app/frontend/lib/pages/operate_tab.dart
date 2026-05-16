@@ -344,10 +344,11 @@ class _LocalPlanningView extends StatelessWidget {
         Container(color: const Color(0xFF0D1117)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: LayoutBuilder(
-            builder: (context, constraints) {
-              final viewportAspect = constraints.maxWidth / constraints.maxHeight;
-              final width = fillViewport
+          child: ClipRect(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+                final width = fillViewport
                   ? (viewportAspect > localAspectRatio
                       ? constraints.maxWidth
                       : constraints.maxHeight * localAspectRatio)
@@ -362,11 +363,11 @@ class _LocalPlanningView extends StatelessWidget {
                       ? constraints.maxHeight
                       : constraints.maxWidth / localAspectRatio);
 
-              return Center(
-                child: OverflowBox(
-                  maxWidth: double.infinity,
-                  maxHeight: double.infinity,
-                  child: SizedBox(
+                return Center(
+                  child: OverflowBox(
+                    maxWidth: double.infinity,
+                    maxHeight: double.infinity,
+                    child: SizedBox(
                     width: width,
                     height: height,
                     child: DecoratedBox(
@@ -473,9 +474,10 @@ class _LocalPlanningView extends StatelessWidget {
                       ),
                     ),
                   ),
-                ),
-              );
-            },
+                  ),
+                );
+              },
+            ),
           ),
         ),
       ],
