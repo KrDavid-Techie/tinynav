@@ -39,6 +39,7 @@ class _OperateTabState extends ConsumerState<OperateTab> {
   bool _showGlobalMap = false;
   bool _navArrived = false;
   bool _showFootprint = true;
+  bool _localMapFill = false;
 
   @override
   void initState() {
@@ -154,6 +155,7 @@ class _OperateTabState extends ConsumerState<OperateTab> {
                         showTrajectory: _showTrajectory,
                         showGlobalPath: _showGlobalPath,
                         showFootprint: _showFootprint,
+                        fillViewport: _localMapFill,
                       ),
               ),
               if (planning != null)
@@ -178,19 +180,30 @@ class _OperateTabState extends ConsumerState<OperateTab> {
                 Positioned(
                   top: 8,
                   right: 8,
-                  child: _LayerTogglePanel(
-                    showObstacle: _showObstacle,
-                    showEsdf: _showEsdf,
-                    showTrajectory: _showTrajectory,
-                    showGlobalPath: _showGlobalPath,
-                    showFootprint: _showFootprint,
-                    onChanged: (obs, esdf, traj, gp, fp) => setState(() {
-                      _showObstacle = obs;
-                      _showEsdf = esdf;
-                      _showTrajectory = traj;
-                      _showGlobalPath = gp;
-                      _showFootprint = fp;
-                    }),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _LocalMapScaleButton(
+                        fillViewport: _localMapFill,
+                        onTap: () => setState(() => _localMapFill = !_localMapFill),
+                      ),
+                      const SizedBox(height: 6),
+                      _LayerTogglePanel(
+                        showObstacle: _showObstacle,
+                        showEsdf: _showEsdf,
+                        showTrajectory: _showTrajectory,
+                        showGlobalPath: _showGlobalPath,
+                        showFootprint: _showFootprint,
+                        onChanged: (obs, esdf, traj, gp, fp) => setState(() {
+                          _showObstacle = obs;
+                          _showEsdf = esdf;
+                          _showTrajectory = traj;
+                          _showGlobalPath = gp;
+                          _showFootprint = fp;
+                        }),
+                      ),
+                    ],
                   ),
                 ),
               if (isNavigating || _navArrived)
@@ -306,6 +319,7 @@ class _LocalPlanningView extends StatelessWidget {
   final bool showTrajectory;
   final bool showGlobalPath;
   final bool showFootprint;
+  final bool fillViewport;
 
   const _LocalPlanningView({
     this.planning,
@@ -314,6 +328,7 @@ class _LocalPlanningView extends StatelessWidget {
     this.showTrajectory = false,
     this.showGlobalPath = true,
     this.showFootprint = true,
+    this.fillViewport = false,
   });
 
   @override
@@ -329,116 +344,182 @@ class _LocalPlanningView extends StatelessWidget {
         Container(color: const Color(0xFF0D1117)),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          child: Center(
-            child: AspectRatio(
-              aspectRatio: localAspectRatio,
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
-                  boxShadow: const [
-                    BoxShadow(
-                      color: Color(0x55000000),
-                      blurRadius: 14,
-                      offset: Offset(0, 6),
-                    ),
-                  ],
-                ),
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(16),
-                  child: Stack(
-                    fit: StackFit.expand,
-                    children: [
-                      const ColoredBox(color: Color(0xFF0F1621)),
-                      InteractiveViewer(
-                        minScale: 0.5,
-                        maxScale: 8.0,
-                        boundaryMargin: const EdgeInsets.all(double.infinity),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final viewportAspect = constraints.maxWidth / constraints.maxHeight;
+              final width = fillViewport
+                  ? (viewportAspect > localAspectRatio
+                      ? constraints.maxWidth
+                      : constraints.maxHeight * localAspectRatio)
+                  : (viewportAspect > localAspectRatio
+                      ? constraints.maxHeight * localAspectRatio
+                      : constraints.maxWidth);
+              final height = fillViewport
+                  ? (viewportAspect > localAspectRatio
+                      ? constraints.maxWidth / localAspectRatio
+                      : constraints.maxHeight)
+                  : (viewportAspect > localAspectRatio
+                      ? constraints.maxHeight
+                      : constraints.maxWidth / localAspectRatio);
+
+              return Center(
+                child: OverflowBox(
+                  maxWidth: double.infinity,
+                  maxHeight: double.infinity,
+                  child: SizedBox(
+                    width: width,
+                    height: height,
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x55000000),
+                            blurRadius: 14,
+                            offset: Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
-                            if (showEsdf && p?.esdfImage != null)
-                              Opacity(
-                                opacity: 0.85,
-                                child: Image.memory(p!.esdfImage!, fit: BoxFit.fill, gaplessPlayback: true),
-                              ),
-                            if (showObstacle && p?.obstacleImage != null)
-                              Opacity(
-                                opacity: 0.45,
-                                child: Image.memory(p!.obstacleImage!, fit: BoxFit.fill, gaplessPlayback: true),
-                              ),
-                            if (p != null)
-                              CustomPaint(
-                                painter: LocalPlanningPainter(
-                                  trajectory: p.trajectory,
-                                  globalPath: p.globalPath,
-                                  footprint: p.footprint,
-                                  gridInfo: p.gridInfo,
-                                  odomPose: p.odomPose,
-                                  showTrajectory: showTrajectory,
-                                  showGlobalPath: showGlobalPath,
-                                  showFootprint: showFootprint,
-                                  navTargetPose: p.navTargetPose,
-                                ),
-                              )
-                            else
-                              Center(
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                  decoration: BoxDecoration(
-                                    color: Colors.black.withOpacity(0.45),
-                                    borderRadius: BorderRadius.circular(12),
-                                    border: Border.all(color: Colors.white.withOpacity(0.12)),
-                                  ),
-                                  child: const Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Icon(Icons.map_outlined, size: 40, color: Colors.white38),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        'Waiting for planning data…',
-                                        style: TextStyle(
-                                          color: Colors.white70,
-                                          fontSize: 13,
-                                          fontWeight: FontWeight.w500,
+                            const ColoredBox(color: Color(0xFF0F1621)),
+                            InteractiveViewer(
+                              minScale: 0.5,
+                              maxScale: 8.0,
+                              boundaryMargin: const EdgeInsets.all(double.infinity),
+                              child: Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  if (showEsdf && p?.esdfImage != null)
+                                    Opacity(
+                                      opacity: 0.85,
+                                      child: Image.memory(p!.esdfImage!, fit: BoxFit.fill, gaplessPlayback: true),
+                                    ),
+                                  if (showObstacle && p?.obstacleImage != null)
+                                    Opacity(
+                                      opacity: 0.45,
+                                      child: Image.memory(p!.obstacleImage!, fit: BoxFit.fill, gaplessPlayback: true),
+                                    ),
+                                  if (p != null)
+                                    CustomPaint(
+                                      painter: LocalPlanningPainter(
+                                        trajectory: p.trajectory,
+                                        globalPath: p.globalPath,
+                                        footprint: p.footprint,
+                                        gridInfo: p.gridInfo,
+                                        odomPose: p.odomPose,
+                                        showTrajectory: showTrajectory,
+                                        showGlobalPath: showGlobalPath,
+                                        showFootprint: showFootprint,
+                                        navTargetPose: p.navTargetPose,
+                                      ),
+                                    )
+                                  else
+                                    Center(
+                                      child: Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withOpacity(0.45),
+                                          borderRadius: BorderRadius.circular(12),
+                                          border: Border.all(color: Colors.white.withOpacity(0.12)),
+                                        ),
+                                        child: const Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.map_outlined, size: 40, color: Colors.white38),
+                                            SizedBox(height: 8),
+                                            Text(
+                                              'Waiting for planning data…',
+                                              style: TextStyle(
+                                                color: Colors.white70,
+                                                fontSize: 13,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                            SizedBox(height: 2),
+                                            Text(
+                                              'Connect device and start local planning',
+                                              style: TextStyle(color: Colors.white38, fontSize: 11),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      SizedBox(height: 2),
-                                      Text(
-                                        'Connect device and start local planning',
-                                        style: TextStyle(color: Colors.white38, fontSize: 11),
-                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            IgnorePointer(
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.topCenter,
+                                    end: Alignment.bottomCenter,
+                                    colors: [
+                                      Colors.white.withOpacity(0.04),
+                                      Colors.transparent,
+                                      Colors.black.withOpacity(0.08),
                                     ],
+                                    stops: const [0.0, 0.35, 1.0],
                                   ),
                                 ),
                               ),
+                            ),
                           ],
                         ),
                       ),
-                      IgnorePointer(
-                        child: DecoratedBox(
-                          decoration: BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.white.withOpacity(0.04),
-                                Colors.transparent,
-                                Colors.black.withOpacity(0.08),
-                              ],
-                              stops: const [0.0, 0.35, 1.0],
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ),
       ],
+    );
+  }
+}
+
+class _LocalMapScaleButton extends StatelessWidget {
+  final bool fillViewport;
+  final VoidCallback onTap;
+
+  const _LocalMapScaleButton({required this.fillViewport, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: Colors.black54,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: Colors.white12),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              fillViewport ? Icons.fullscreen_exit_rounded : Icons.fullscreen_rounded,
+              size: 15,
+              color: Colors.white70,
+            ),
+            const SizedBox(width: 5),
+            Text(
+              fillViewport ? 'Fill' : 'Fit',
+              style: const TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
