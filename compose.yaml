@@ -1,0 +1,102 @@
+name: tinynav-foxglove
+
+x-tinynav-service: &tinynav-service
+  image: ${TINYNAV_IMAGE:-uniflexai/tinynav:latest}
+  network_mode: host
+  ipc: host
+  privileged: true
+  init: true
+  restart: unless-stopped
+  shm_size: "16gb"
+  working_dir: /tinynav
+  entrypoint: ["/bin/bash", "-lc"]
+  environment:
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-0}
+    TINYNAV_DB_PATH: /root/.local/share/tinynav
+  volumes:
+    - ./:/tinynav
+    - ${TINYNAV_HOST_DATA_DIR:-./tinynav_data}:/root/.local/share/tinynav
+    - /dev:/dev
+    - /etc/localtime:/etc/localtime:ro
+  device_cgroup_rules:
+    - "c 81:* rwm"
+    - "c 234:* rwm"
+
+services:
+  tinynav-init:
+    <<: *tinynav-service
+    profiles: ["init"]
+    restart: "no"
+    gpus: all
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      source /3rdparty/ros2_ws/install/local_setup.bash &&
+      source /3rdparty/message_filters_ws/install/local_setup.bash &&
+      if ! ls /tinynav/tinynav/models/*.plan >/dev/null 2>&1; then
+        make -C /tinynav/tinynav/models all;
+      else
+        echo "TensorRT plan files already exist; skipping build.";
+      fi
+
+  realsense:
+    <<: *tinynav-service
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      source /3rdparty/ros2_ws/install/local_setup.bash &&
+      bash /tinynav/scripts/run_realsense_sensor.sh
+
+  perception:
+    <<: *tinynav-service
+    gpus: all
+    depends_on:
+      - realsense
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      source /3rdparty/ros2_ws/install/local_setup.bash &&
+      source /3rdparty/message_filters_ws/install/local_setup.bash &&
+      cd /tinynav &&
+      uv run python /tinynav/tinynav/core/perception_node.py
+
+  planning:
+    <<: *tinynav-service
+    depends_on:
+      - perception
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      source /3rdparty/ros2_ws/install/local_setup.bash &&
+      source /3rdparty/message_filters_ws/install/local_setup.bash &&
+      cd /tinynav &&
+      uv run python /tinynav/tinynav/core/planning_node.py
+
+  cmd-vel-control:
+    <<: *tinynav-service
+    depends_on:
+      - planning
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      cd /tinynav &&
+      uv run python /tinynav/tinynav/platforms/cmd_vel_control.py
+
+  foxglove-image-repub:
+    <<: *tinynav-service
+    depends_on:
+      - realsense
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      ros2 run image_transport republish raw foxglove --ros-args
+      --remap in:=/camera/camera/color/image_raw
+      -r out/foxglove:=/camera/camera/color/image_raw_repub
+      -p out.foxglove.qmax:=60
+      -p out.foxglove.bit_rate:=8000000
+
+  foxglove-bridge:
+    <<: *tinynav-service
+    depends_on:
+      - foxglove-image-repub
+      - planning
+      - cmd-vel-control
+    command: >
+      source /opt/ros/humble/setup.bash &&
+      ros2 run foxglove_bridge foxglove_bridge --ros-args
+      -p port:=${FOXGLOVE_PORT:-8765}
+      -p topic_whitelist:="[/camera/camera/color/image_raw_repub,/camera/camera/color/camera_info,/camera/camera/infra1/image_rect_raw,/camera/camera/infra2/image_rect_raw,/camera/camera/infra2/camera_info,/slam/depth,/slam/disparity_vis,/slam/odometry,/slam/odometry_visual,/planning/trajectory_path,/planning/height_map,/planning/occupied_voxels,/planning/footprint,/cmd_vel,/control/target_pose,/service/command,/battery,/robot_status,/tf,/tf_static]"
