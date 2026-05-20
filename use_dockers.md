@@ -228,196 +228,49 @@ GUI 없이 Foxglove만 쓰는 최소 실시간 구성은 보통 다음 흐름입
 - `/dev:/dev`
 - 충분한 shared memory (`ipc: host` 또는 `shm_size`)
 
-### compose 예시
+### 실제 compose 파일
 
-아래 예시는 이 저장소에 별도 compose 파일이 없다는 전제로, `use_dockers.md` 안에 바로 붙여 쓸 수 있는 기준 예시입니다.
+실제 실행 파일은 루트의 [compose.yaml](compose.yaml) 입니다. 이 파일은 바로 `docker compose up -d` 로 올릴 수 있게 만들어 두었습니다.
 
-```yaml
-services:
-  tinynav-init:
-    image: uniflexai/tinynav:latest
-    profiles: ["init"]
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      source /3rdparty/ros2_ws/install/local_setup.bash &&
-      source /3rdparty/message_filters_ws/install/local_setup.bash &&
-      if ! ls /tinynav/tinynav/models/*.plan >/dev/null 2>&1; then
-        make -C /tinynav/tinynav/models all;
-      fi
+[compose.yaml](compose.yaml)에 포함된 서비스는 다음과 같습니다.
 
-  realsense:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      source /3rdparty/ros2_ws/install/local_setup.bash &&
-      bash /tinynav/scripts/run_realsense_sensor.sh
+- `tinynav-init`: 첫 실행 시 TensorRT `.plan` 생성만 담당하는 초기화 서비스
+- `realsense`: [scripts/run_realsense_sensor.sh](scripts/run_realsense_sensor.sh) 기반 RealSense 드라이버
+- `perception`: [tinynav/core/perception_node.py](tinynav/core/perception_node.py)
+- `planning`: [tinynav/core/planning_node.py](tinynav/core/planning_node.py)
+- `cmd-vel-control`: [tinynav/platforms/cmd_vel_control.py](tinynav/platforms/cmd_vel_control.py)
+- `foxglove-image-repub`: 컬러 영상을 Foxglove 친화 포맷으로 재퍼블리시
+- `foxglove-bridge`: Foxglove WebSocket 브리지
 
-  perception:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      - realsense
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      source /3rdparty/message_filters_ws/install/local_setup.bash &&
-      cd /tinynav &&
-      uv run python /tinynav/tinynav/core/perception_node.py
+기본값으로는 아래 환경변수를 사용합니다.
 
-  planning:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      - perception
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      source /3rdparty/message_filters_ws/install/local_setup.bash &&
-      cd /tinynav &&
-      uv run python /tinynav/tinynav/core/planning_node.py
+- `TINYNAV_IMAGE=uniflexai/tinynav:latest`
+- `ROS_DOMAIN_ID=0`
+- `FOXGLOVE_PORT=8765`
+- `TINYNAV_HOST_DATA_DIR=./tinynav_data`
 
-  cmd-vel-control:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      - planning
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      cd /tinynav &&
-      uv run python /tinynav/tinynav/platforms/cmd_vel_control.py
+필요하면 셸에서 export 한 뒤 `docker compose` 를 실행하면 됩니다.
 
-  foxglove-image-repub:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      - realsense
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      ros2 run image_transport republish raw foxglove --ros-args
-      --remap in:=/camera/camera/color/image_raw
-      -r out/foxglove:=/camera/camera/color/image_raw_repub
-      -p out.foxglove.qmax:=60
-      -p out.foxglove.bit_rate:=8000000
-
-  foxglove-bridge:
-    image: uniflexai/tinynav:latest
-    network_mode: host
-    ipc: host
-    privileged: true
-    working_dir: /tinynav
-    entrypoint: ["/bin/bash", "-lc"]
-    volumes:
-      - ./:/tinynav
-      - ${HOME}/.local/share/tinynav:/root/.local/share/tinynav
-      - /dev:/dev
-      - /etc/localtime:/etc/localtime:ro
-    depends_on:
-      - foxglove-image-repub
-      - planning
-      - cmd-vel-control
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      ros2 run foxglove_bridge foxglove_bridge --ros-args
-      -p port:=8765
-      -p topic_whitelist:="[/camera/camera/color/image_raw_repub,/camera/camera/color/camera_info,/camera/camera/infra1/image_rect_raw,/camera/camera/infra2/image_rect_raw,/camera/camera/infra2/camera_info,/slam/depth,/slam/disparity_vis,/slam/odometry,/slam/odometry_visual,/planning/trajectory_path,/planning/height_map,/planning/occupied_voxels,/planning/footprint,/cmd_vel,/control/target_pose,/tf,/tf_static]"
-
-  unitree-ros2-bridge:
-    image: <your-unitree-ros2-image>
-    network_mode: host
-    ipc: host
-    privileged: true
-    entrypoint: ["/bin/bash", "-lc"]
-    depends_on:
-      - cmd-vel-control
-    command: >
-      source /opt/ros/humble/setup.bash &&
-      ros2 run <your_bridge_pkg> <your_bridge_node> --ros-args
-      -r /tinynav_cmd_vel:=/cmd_vel
-      -r /tinynav_action:=/service/command
-```
-
-### compose 예시를 읽는 방법
-
-- `tinynav-init` 는 첫 실행에서 TensorRT `.plan` 이 없을 때 한 번만 돌리는 초기화 서비스입니다.
-- `realsense` 는 [scripts/run_realsense_sensor.sh](scripts/run_realsense_sensor.sh) 를 그대로 사용합니다.
-- `perception` 은 내부에서 `ImuPropagatorNode` 까지 함께 띄우므로 `/slam/odometry` 까지 생성됩니다.
-- `planning` 은 `/slam/depth`, `/slam/odometry_visual`, `/camera/camera/infra2/camera_info`, `/control/target_pose` 를 이용해 `/planning/trajectory_path` 를 만듭니다.
-- `cmd-vel-control` 은 `/planning/trajectory_path` 를 `/cmd_vel` 로 바꾸는 단계입니다.
-- `foxglove-image-repub` 와 `foxglove-bridge` 는 [scripts/run_streamer_manager.sh](scripts/run_streamer_manager.sh) 의 아이디어를 compose 형태로 옮긴 것입니다.
-- `unitree-ros2-bridge` 는 이 저장소 바깥에 있는 사용자 측 브리지입니다. 이미 `unitree_ros2` 쪽에서 `/cmd_vel` 을 직접 받을 수 있으면 이 서비스는 제거하고 기존 노드를 그대로 사용하면 됩니다. `/service/command` remap 은 sit/stand 같은 액션 명령을 실제로 쓸 때만 유지하면 됩니다.
+이 실제 compose 파일에는 `unitree_ros2` 브리지 서비스는 넣지 않았습니다. 이유는 사용자가 이미 `unitree_ros2` command API topic 을 준비할 수 있다는 전제였고, 그 경우 TinyNav 쪽은 `/cmd_vel` 까지만 만들면 충분하기 때문입니다. 즉, 기본 compose 스택을 올린 뒤 같은 host network 와 같은 `ROS_DOMAIN_ID` 위에서 사용자의 `unitree_ros2` 노드가 `/cmd_vel` 을 구독하게 두는 방식이 가장 단순합니다. sit/stand 같은 액션 명령이 필요하면 `/service/command` 는 외부 publisher 나 app/backend 가 별도로 넣어주면 됩니다.
 
 ### 실행 순서
 
 첫 실행에서는 모델 초기화를 먼저 끝내는 편이 좋습니다.
 
 ```bash
-docker compose run --rm tinynav-init
+docker compose --profile init run --rm tinynav-init
 ```
 
 그 다음 본 스택을 올립니다.
 
 ```bash
-docker compose up -d realsense perception planning cmd-vel-control foxglove-image-repub foxglove-bridge unitree-ros2-bridge
+docker compose up -d
 ```
 
 로그 확인:
 
 ```bash
-docker compose logs -f realsense perception planning foxglove-bridge
+docker compose logs -f realsense perception planning cmd-vel-control foxglove-bridge
 ```
 
 Foxglove 연결 주소:
@@ -455,7 +308,7 @@ docker compose exec planning bash -lc 'source /opt/ros/humble/setup.bash && ros2
 
 #### 1. `unitree_control.py` 를 같이 띄우면 안 되는가
 
-보통은 같이 띄우지 않는 편이 낫습니다. [tinynav/platforms/unitree_control.py](tinynav/platforms/unitree_control.py) 는 `unitree_ros2` API 용 ROS bridge 가 아니라, Unitree SDK DDS 채널 직접 구독기입니다. `unitree_ros2` 를 이미 쓰는 경우에는 제어 경로가 중복되거나 엇갈릴 가능성이 큽니다.
+보통은 같이 띄우지 않는 편이 낫습니다. [tinynav/platforms/unitree_control.py](tinynav/platforms/unitree_control.py) 는 `unitree_ros2` API 용 ROS bridge 가 아니라, Unitree SDK DDS 채널 직접 구독기입니다. `unitree_ros2` 를 이미 쓰는 경우에는 제어 경로가 중복되거나 엇갈릴 가능성이 큽니다. 현재 실제 [compose.yaml](compose.yaml) 도 이 이유 때문에 `unitree_control.py` 를 포함하지 않습니다.
 
 #### 2. RealSense만 뜨고 planning 이 조용한가
 
@@ -475,7 +328,7 @@ docker compose exec planning bash -lc 'source /opt/ros/humble/setup.bash && ros2
 
 ### compose 기반 구성의 한 줄 요약
 
-RealSense + TinyNav + Foxglove + `unitree_ros2` 조합에서는, 이 저장소 내부의 `unitree_control.py` 를 직접 쓰기보다, TinyNav가 만든 `/cmd_vel` 을 `unitree_ros2` command API 로 넘기는 외부 브리지를 compose 에 함께 올리는 구성이 가장 현실적입니다. `/service/command` 는 액션 명령이 필요할 때만 추가로 연결하면 됩니다.
+RealSense + TinyNav + Foxglove + `unitree_ros2` 조합에서는, 실제 [compose.yaml](compose.yaml) 로 TinyNav 스택을 올리고, 외부의 `unitree_ros2` 노드가 같은 host network 에서 `/cmd_vel` 을 받아가게 두는 구성이 가장 현실적입니다. `/service/command` 는 액션 명령이 필요할 때만 추가로 연결하면 됩니다.
 
 ## 앱 백엔드와 프런트엔드를 Docker 안에서 실행하기
 
